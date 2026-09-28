@@ -236,3 +236,35 @@ test('pager cooldown holds repeat templates and the budget holds instead of pagi
  assert.equal((await capped.decide({ body: 'maybe', severityText: 'INFO' })).page, false);
  assert.equal(calls, 2);
 });
+test('OPENROUTER_API_KEY sends built-in triage and page questions to the OpenRouter Decisions API', async () => {
+ const saved = { fetch: globalThis.fetch, key: process.env.OPENROUTER_API_KEY };
+ const requests = [];
+ globalThis.fetch = async (url, init) => {
+  const body = JSON.parse(init.body); requests.push({ url, auth: init.headers.authorization, body });
+  const answers = body.questions.page_now ? { page_now: { type: 'noul', noul: 0.8 } } : { actionable: { type: 'noul', noul: 0.02 }, priority: { type: 'choice', choice: 'low' }, value: { type: 'score', score: 0.2 } };
+  return new Response(JSON.stringify({ model: 'typesafe/jev-1.13-20260917', answers, usage: { input_tokens: 300, output_tokens: 10 } }));
+ };
+ process.env.OPENROUTER_API_KEY = 'test-key';
+ try {
+  const jev = createJevLogs();
+  assert.deepEqual(await jev.triage({ body: 'GET /health 200 password=hunter2' }), { value: 5, priority: 'low', actionableProbability: 0.02, route: 'retain', reason: 'model', cached: false });
+  assert.equal(jev.stats().inputTokens, 300);
+  assert.equal((await createJevPager().decide({ body: 'checkout down' })).page, true);
+  const [triage, page] = requests;
+  assert.equal(triage.url, 'https://openrouter.ai/api/alpha/decisions');
+  assert.equal(triage.auth, 'Bearer test-key');
+  assert.equal(triage.body.model, 'typesafe/jev-1.13');
+  assert.deepEqual(triage.body.provider, { zdr: true, data_collection: 'deny' });
+  assert.equal(triage.body.questions.actionable.type, 'noul');
+  assert.equal(triage.body.questions.priority.type, 'choice');
+  assert.ok(!triage.body.state.includes('hunter2'));
+  assert.equal(page.body.questions.page_now.type, 'noul');
+  globalThis.fetch = async () => new Response('{"error":{"code":402,"message":"credits"}}', { status: 402 });
+  assert.equal((await createJevLogs().triage({ body: 'x' })).reason, 'unavailable');
+  globalThis.fetch = async () => new Response('{"answers":{},"usage":{}}');
+  assert.equal((await createJevPager().decide({ body: 'x' })).reason, 'unavailable');
+ } finally {
+  globalThis.fetch = saved.fetch;
+  if (saved.key === undefined) delete process.env.OPENROUTER_API_KEY; else process.env.OPENROUTER_API_KEY = saved.key;
+ }
+});

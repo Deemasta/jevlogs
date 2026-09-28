@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **OpenRouter.** With `OPENROUTER_API_KEY` set, the built-in triage and pager evaluators call Jev through the [OpenRouter Decisions API](https://openrouter.ai/docs/guides/community/jev) (`POST /api/alpha/decisions`, model `typesafe/jev-1.13`, override with `OPENROUTER_JEV_MODEL`). Requests ask for zero data retention and deny data collection. `AI_GATEWAY_API_KEY` still selects Vercel AI Gateway; OpenRouter wins when both are set. The CLI and receiver accept either key and name the provider in their banners. `jevProvider()` reports the choice.
+
 ## 0.5.0 — 2026-09-21
 
 Measure a filter before trusting it, and keep a page from repeating.
