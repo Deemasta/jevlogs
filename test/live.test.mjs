@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-// Opt-in: runs real Jev inference only when a Gateway key is present. Provider charges apply.
-const key = process.env.AI_GATEWAY_API_KEY?.trim();
-test('live sample evaluation returns model decisions', { skip: key ? false : 'AI_GATEWAY_API_KEY not set' }, () => {
+// Opt-in: runs real Jev inference only when an OpenRouter or Gateway key is present. Provider charges apply.
+const key = process.env.OPENROUTER_API_KEY?.trim() || process.env.AI_GATEWAY_API_KEY?.trim();
+test('live sample evaluation returns model decisions', { skip: key ? false : 'OPENROUTER_API_KEY or AI_GATEWAY_API_KEY not set' }, () => {
   const r = spawnSync(process.execPath, ['dist/cli.js', '--live', '--sample', '--json'], { encoding: 'utf8', timeout: 60_000 });
   assert.equal(r.status, 0, r.stderr);
   const rows = r.stdout.trim().split('\n').map(JSON.parse);

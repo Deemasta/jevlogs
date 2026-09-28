@@ -2,7 +2,7 @@
 
 Jev Logs is a small decision layer before expensive LLM log analysis. Use it from a terminal, in a TypeScript job, or inside your existing Node.js OpenTelemetry Logs pipeline. It assigns diagnostic value, urgency, and an analysis recommendation. Your existing system remains responsible for storing logs, delivering events, and running deeper analysis.
 
-**Current release: 0.5.0, public preview.** The SDK and CLI are on npm. The default demo is offline; live evaluation needs `AI_GATEWAY_API_KEY` and Jev access through Vercel AI Gateway. Production accuracy and savings have not been independently validated for this project.
+**Current release: 0.5.0, public preview.** The SDK and CLI are on npm. The default demo is offline; live evaluation needs Jev access through OpenRouter (`OPENROUTER_API_KEY`) or Vercel AI Gateway (`AI_GATEWAY_API_KEY`). Production accuracy and savings have not been independently validated for this project.
 
 ## Start a local OpenTelemetry receiver with one config
 
@@ -21,10 +21,12 @@ Requires Node.js 22+. Install `npm install jevlogs`, or use `npx` directly. Add 
 Create `.env` beside it:
 
 ```dotenv
-AI_GATEWAY_API_KEY=your-vercel-ai-gateway-key
+OPENROUTER_API_KEY=your-openrouter-key
+# or, for Vercel AI Gateway:
+# AI_GATEWAY_API_KEY=your-vercel-ai-gateway-key
 ```
 
-Add `.env` to your `.gitignore`. Commit the JSON config, not your key. Create a key in your [Vercel AI Gateway dashboard](https://vercel.com/docs/ai-gateway/authentication-and-byok). This is **your Gateway key**, not an OpenAI key or a Jev Logs account. Provider usage is charged to your Gateway account. The AI SDK reads it server-side to authenticate Jev requests. Applications sending OTLP logs do not need this key. The website never receives it.
+Add `.env` to your `.gitignore`. Commit the JSON config, not your key. Use a key from [OpenRouter](https://openrouter.ai/settings/keys) or your [Vercel AI Gateway dashboard](https://vercel.com/docs/ai-gateway/authentication-and-byok). With `OPENROUTER_API_KEY`, Jev calls go to the [OpenRouter Decisions API](https://openrouter.ai/docs/guides/community/jev) as `typesafe/jev-1.13` (override with `OPENROUTER_JEV_MODEL`). With `AI_GATEWAY_API_KEY`, the AI SDK calls `typesafe-ai/jev` through Gateway. OpenRouter wins when both are set. Provider usage is charged to that account; it is not an OpenAI key or a Jev Logs account. The key is read server-side. Applications sending OTLP logs do not need this key. The website never receives it.
 
 Run from that project root:
 
@@ -162,7 +164,7 @@ npx jevlogs --help
 
 The default command uses fixed answers for four sample records. It does not call Jev. It demonstrates the SDK's routing policy and output format.
 
-For actual inference, set your Gateway key through your shell's environment or secret manager, then run:
+For actual inference, set your OpenRouter or Gateway key through your shell's environment or secret manager, then run:
 
 ```sh
 npx jevlogs --live --sample
@@ -171,7 +173,7 @@ cat ./app.jsonl | npx jevlogs --live --stdin --json > decisions.jsonl
 tail -f ./app.log | npx jevlogs --live --stdin --follow --json
 ```
 
-The key is read from `AI_GATEWAY_API_KEY`; there is no API-key command-line flag. Live mode sends redacted log bodies and severity to Vercel AI Gateway / TypeSafe and incurs provider charges. Your input file is never modified.
+The key is read from `OPENROUTER_API_KEY` or `AI_GATEWAY_API_KEY` (OpenRouter wins when both are set); there is no API-key command-line flag. Live mode sends redacted log bodies and severity to OpenRouter or Vercel AI Gateway, then TypeSafe, and incurs provider charges. Your input file is never modified.
 
 ### Accepted input
 
@@ -287,7 +289,7 @@ All other records receive `analyze`. A record recommended for analysis can still
 | `timeoutMs` | `2000` | Per-evaluation deadline in milliseconds |
 | `maxInputChars` | `8000` | Maximum serialized state length before and after redaction |
 | `redact` | `redactCommonSecrets` | Synchronous text transform before model transmission |
-| `evaluator` | Jev through AI Gateway | Injectable evaluator for tests or custom integrations |
+| `evaluator` | Jev through OpenRouter or AI Gateway, by key | Injectable evaluator for tests or custom integrations |
 | `rules` | `[]` | `{ name?, match, flags?, route }` tested against the redacted body after protection, before cache and model; first match wins |
 | `cache` | 1,000 entries, 5 minutes | `{ maxEntries, ttlMs }` or `false`; keyed by a SHA-256 of the redacted model input; failures are never cached |
 
@@ -405,7 +407,7 @@ const jev = createJevLogs({
 
 The default removes common labeled secrets, Bearer tokens, and email addresses. It is not complete PII detection. Body, severity, and `service.name` enter the standard model request; arbitrary OTel attributes are not included. Sensitive data embedded in a body still requires redaction. This hook changes the model-bound text, **not** the original log forwarded to your exporter. Apply separate redaction to your archive if necessary.
 
-Gateway requests ask for zero data retention. Check the applicable provider account policies. Keep credentials server-side. Jev's structured outputs can still be wrong, and logs can contain adversarial instructions; protection rules are not a complete security classifier.
+OpenRouter and Gateway requests ask for zero data retention. Check the applicable provider account policies. Keep credentials server-side. Jev's structured outputs can still be wrong, and logs can contain adversarial instructions; protection rules are not a complete security classifier.
 
 ## 6. Estimate costs before routing
 
@@ -483,7 +485,7 @@ The same math is `scoreDecisions([{ important, selected, line }])`. Recall is nu
 | Symptom | What to check |
 | --- | --- |
 | Default command seems to return the same answers | It is the offline sample demo. Use `--live --sample` for actual Jev inference. |
-| Live CLI says key missing | Set `AI_GATEWAY_API_KEY` in the same shell/process; do not paste it into logs or issues. |
+| Live CLI says key missing | Set `OPENROUTER_API_KEY` or `AI_GATEWAY_API_KEY` in the same shell/process; do not paste it into logs or issues. |
 | `reason: unavailable`, exit 2 | Check model access, connectivity, serialized input size, and timeout. The CLI does not reveal the provider's underlying error. |
 | Every ERROR gets value 100 | The local protection rule bypasses the model and conservatively selects analysis. |
 | All logs still appear in the backend | Expected in annotation mode. Inspect `jev.*` attributes or use a separate analysis branch. |

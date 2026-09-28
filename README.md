@@ -58,10 +58,12 @@ Requires Node.js 22+. Install `npm install jevlogs`, or use `npx` directly. Add 
 Create `.env` beside it:
 
 ```dotenv
-AI_GATEWAY_API_KEY=your-vercel-ai-gateway-key
+OPENROUTER_API_KEY=your-openrouter-key
+# or, for Vercel AI Gateway:
+# AI_GATEWAY_API_KEY=your-vercel-ai-gateway-key
 ```
 
-Add `.env` to your `.gitignore`. Commit the JSON config, not your key. Create a key in your [Vercel AI Gateway dashboard](https://vercel.com/docs/ai-gateway/authentication-and-byok). This is **your Gateway key**, not an OpenAI key or a Jev Logs account. Provider usage is charged to your Gateway account. The AI SDK reads it server-side to authenticate Jev requests. Applications sending OTLP logs do not need this key. The website never receives it.
+Add `.env` to your `.gitignore`. Commit the JSON config, not your key. Use a key from [OpenRouter](https://openrouter.ai/settings/keys) or your [Vercel AI Gateway dashboard](https://vercel.com/docs/ai-gateway/authentication-and-byok). With `OPENROUTER_API_KEY`, Jev calls go to the [OpenRouter Decisions API](https://openrouter.ai/docs/guides/community/jev) as `typesafe/jev-1.13` (override with `OPENROUTER_JEV_MODEL`). With `AI_GATEWAY_API_KEY`, the AI SDK calls `typesafe-ai/jev` through Gateway. OpenRouter wins when both are set. Provider usage is charged to that account; it is not an OpenAI key or a Jev Logs account. The key is read server-side. Applications sending OTLP logs do not need this key. The website never receives it.
 
 Run from that project root:
 
@@ -209,7 +211,7 @@ No setup. No API key. A clearly labeled **offline demo** walks through four samp
 
 ### Try real Jev
 
-Set `AI_GATEWAY_API_KEY` in your environment, then choose your input:
+Set `OPENROUTER_API_KEY` (or `AI_GATEWAY_API_KEY`) in your environment, then choose your input:
 
 ```sh
 # Evaluate the included sample logs with Jev
@@ -225,7 +227,7 @@ cat app.jsonl | npx jevlogs --live --stdin --json
 tail -f app.log | npx jevlogs --live --stdin --follow --json
 ```
 
-Live mode sends redacted log bodies to Vercel AI Gateway / TypeSafe and incurs provider charges. Your files remain unchanged. Get access through [AI Gateway](https://vercel.com/ai-gateway/models/jev).
+Live mode sends redacted log bodies to OpenRouter or Vercel AI Gateway, then TypeSafe, and incurs provider charges. Your files remain unchanged. Get access through [OpenRouter](https://openrouter.ai/typesafe/jev-1.13) or [AI Gateway](https://vercel.com/ai-gateway/models/jev).
 
 <details>
 <summary><strong>CLI input, limits, and exit codes</strong></summary>
@@ -287,7 +289,7 @@ npx jevlogs --live --file incidents.jsonl --labels --json
 
 Each record can set `important: true` or `label: "incident"` when a human needed it, and `important: false` or `label: "noise"` when it should be skipped. The summary prints recall and precision. A missed important record exits 2. `scoreDecisions()` is the same calculation in code. `maxModelCalls` caps how many of those lines can reach the model; past the cap, analysis routing keeps the record and the pager holds.
 
-Requires **Node.js 22+** and a server-side `AI_GATEWAY_API_KEY` for live evaluation. The standalone API and CLI do not require OpenTelemetry at runtime. TypeScript projects checking dependency declarations may also need the OTel peer because the package exports its exporter types. Importing the library does not run the CLI.
+Requires **Node.js 22+** and a server-side `OPENROUTER_API_KEY` or `AI_GATEWAY_API_KEY` for live evaluation. The standalone API and CLI do not require OpenTelemetry at runtime. TypeScript projects checking dependency declarations may also need the OTel peer because the package exports its exporter types. Importing the library does not run the CLI.
 
 ### Already using OpenTelemetry?
 
@@ -427,7 +429,7 @@ Check actual billing and token usage before budgeting. Provider speed and cost b
 
 Only the log body, severity, and service name enter the model request; arbitrary OTel attributes are not sent. The SDK redacts common labeled secrets, Bearer tokens, and email addresses before transmission. Supply a domain-specific `redact(text)` hook for your own data policy. The default is not comprehensive PII detection.
 
-Keep Gateway credentials on the server. Mark audit, security, and compliance records as protected. Evaluate incident recall on labeled logs before enabling analysis filtering, and periodically review a sample of bypassed events. Typed outputs can still contain incorrect decisions.
+Keep provider keys on the server. Mark audit, security, and compliance records as protected. Evaluate incident recall on labeled logs before enabling analysis filtering, and periodically review a sample of bypassed events. Typed outputs can still contain incorrect decisions.
 
 ## Current scope and limits
 
@@ -435,7 +437,7 @@ This release handles **Node.js log records** and OTLP HTTP JSON or protobuf from
 
 The file/stdin CLI modes process finite input after EOF, up to 1 MiB and 100 selected records. Plain text and simple JSONL are supported in those modes, including Pino's `msg` and levels 10–60. `--live` alone runs the local OTLP HTTP receiver documented above. `--stdin --follow` evaluates a live stream line by line. There is no gRPC receiver. Other numeric level schemes still need a `severityText` or an OpenTelemetry `severityNumber`.
 
-The default redactor transforms the **model-bound copy**, not the original record sent to your exporter. Zero-data-retention is requested through Gateway, while your archive policies remain your responsibility. Identical templates share one model call and are cached in memory for five minutes by default. The cache key collapses identifiers; the model still receives the redacted original, so `47m` and `12s` do not share a decision. There are no automatic model retries.
+The default redactor transforms the **model-bound copy**, not the original record sent to your exporter. Zero-data-retention is requested from both providers (OpenRouter `provider.zdr`, Gateway `zeroDataRetention`), while your archive policies remain your responsibility. Identical templates share one model call and are cached in memory for five minutes by default. The cache key collapses identifiers; the model still receives the redacted original, so `47m` and `12s` do not share a decision. There are no automatic model retries.
 
 `estimateSavings().retainedFraction` is the fraction **still sent to the downstream LLM**, including protected and uncertain records; it is not your archive retention rate. Start with annotation, measure incident recall and costs, then choose whether to enable filtering.
 

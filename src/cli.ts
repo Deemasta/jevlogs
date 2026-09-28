@@ -4,7 +4,7 @@ import { startJevLogsServer } from './server.js';
 import { readFile, stat } from 'node:fs/promises';
 import { createInterface } from 'node:readline';
 import { createRequire } from 'node:module';
-import { createJevLogs, createJevPager, redactCommonSecrets, scoreDecisions, type LogInput, type Evaluation, type Decision, type PageDecision, type JevStats, type PageStats, type ScoreRow } from './index.js';
+import { createJevLogs, createJevPager, jevProvider, redactCommonSecrets, scoreDecisions, type LogInput, type Evaluation, type Decision, type PageDecision, type JevStats, type PageStats, type ScoreRow } from './index.js';
 
 const { version } = createRequire(import.meta.url)('../package.json') as { version: string };
 const HELP = `
@@ -27,7 +27,7 @@ const HELP = `
   --sample           Evaluate built-in samples with --live and exit
   --port <number>    Local receiver port (default 4318)
   --demo             Explicit offline sample demo (default)
-  --live             Send redacted log bodies to Vercel AI Gateway / TypeSafe
+  --live             Send redacted log bodies to Jev via OpenRouter or Vercel AI Gateway
   --file <path>      Read a local text or JSONL file (requires --live)
   --stdin            Read stdin (requires --live; finish input to begin)
   --follow           With --stdin: evaluate each line as it arrives, no limit
@@ -36,7 +36,8 @@ const HELP = `
   --help, -h         Show help
   --version, -v      Show version
 
-  Live mode requires AI_GATEWAY_API_KEY in your server environment.
+  Live mode requires OPENROUTER_API_KEY or AI_GATEWAY_API_KEY in your server environment.
+  OpenRouter is used when both are set. OPENROUTER_JEV_MODEL overrides typesafe/jev-1.13.
   Provider charges apply. Default redaction is not a complete PII policy.
   Input limit: 1 MiB total / 8,000 characters per record. No files are changed.
   JSONL accepts body, message, or msg, severityNumber, severityText or level,
@@ -190,7 +191,8 @@ async function main() {
   if (page && !sample && !file && !stdin && live) throw new Error('--page evaluates a sample, file, or stdin stream. The OTLP receiver still scores analysis routes.');
   if (labels && live && !sample && !file && !stdin) throw new Error('--labels scores a sample, file, or stdin stream.');
   const config = live ? await loadJevConfig(configPath) : {};
-  if (live && !process.env.AI_GATEWAY_API_KEY?.trim()) throw new Error('Live mode requires AI_GATEWAY_API_KEY. Set it in your environment; do not pass keys on the command line.');
+  if (live && !jevProvider()) throw new Error('Live mode requires OPENROUTER_API_KEY or AI_GATEWAY_API_KEY. Set it in your environment; do not pass keys on the command line.');
+  const via = jevProvider() === 'openrouter' ? 'OpenRouter' : 'Vercel AI Gateway';
   if (sample && (!live || file || stdin)) throw new Error('--sample requires --live without --file or --stdin');
   if (live && !sample && !file && !stdin) {
     const receiver = await startJevLogsServer({ ...config, maxModelCalls: maxCalls ?? config.maxModelCalls, port: port ?? config.port, onLog(event) {
@@ -198,7 +200,7 @@ async function main() {
       console.log(JSON.stringify({ traceId: event.logRecord.traceId, spanId: event.logRecord.spanId, timeUnixNano: event.logRecord.timeUnixNano, ...event.decision }));
     } });
     const forwardNote = receiver.forwardUrl ? `Annotated records are forwarded to ${receiver.forwardUrl} (${config.forwardMode ?? 'annotate'}).` : 'No forwardUrl configured: decisions go to stdout only.';
-    console.error(`JEV LOGS ${version} · LIVE receiver: ${receiver.url}\nSend OTLP HTTP logs (JSON or protobuf). gRPC is not supported. ${forwardNote}\nRedacted bodies go to Vercel AI Gateway / TypeSafe. Provider charges apply. GET /stats for counters. Ctrl+C to stop.`);
+    console.error(`JEV LOGS ${version} · LIVE receiver: ${receiver.url}\nSend OTLP HTTP logs (JSON or protobuf). gRPC is not supported. ${forwardNote}\nRedacted bodies go to ${via} / TypeSafe. Provider charges apply. GET /stats for counters. Ctrl+C to stop.`);
     const stop = () => {
       const s = receiver.stats();
       console.error(`\n${summary(s.triage, true)} ${s.forwarded ? `${s.forwarded} forwarded, ${s.forwardFailures} forward failures.` : ''}`.trimEnd());
@@ -210,11 +212,11 @@ async function main() {
   const mode = live ? 'live' : 'demo';
   console.error(page
     ? (live
-      ? `\nJEV LOGS ${version} · LIVE PAGE · typesafe-ai/jev\nOne boolean question per log. Page when probability is at least ${pageAbove ?? 0.5}. Provider charges apply.\n`
+      ? `\nJEV LOGS ${version} · LIVE PAGE · Jev via ${via}\nOne boolean question per log. Page when probability is at least ${pageAbove ?? 0.5}. Provider charges apply.\n`
       : `\nJEV LOGS ${version} · OFFLINE PAGE DEMO\nFixed sample probabilities, not Jev inference. No network requests.\n`)
     : (live
-      ? `\nJEV LOGS ${version} · LIVE · typesafe-ai/jev\nRedacted bodies are sent to AI Gateway / TypeSafe; provider charges apply.\n`
-      : `\nJEV LOGS ${version} · OFFLINE DEMO\nFixed sample answers, not Jev inference. No network requests. Try --live with a Gateway key.\n`));
+      ? `\nJEV LOGS ${version} · LIVE · Jev via ${via}\nRedacted bodies are sent to ${via} / TypeSafe; provider charges apply.\n`
+      : `\nJEV LOGS ${version} · OFFLINE DEMO\nFixed sample answers, not Jev inference. No network requests. Try --live with an OpenRouter or Gateway key.\n`));
   let demoIndex = 0;
   const shared = { timeoutMs: config.timeoutMs, maxInputChars: config.maxInputChars, rules: config.rules, cache: live ? config.cache : false as const, normalizeTemplates: config.normalizeTemplates, maxModelCalls: maxCalls ?? config.maxModelCalls };
   const jev = page
@@ -233,8 +235,8 @@ async function main() {
     }
     if (unavailable) {
       console.error(page
-        ? `${unavailable} evaluation(s) unavailable; those lines were held. Check Gateway access, connectivity, or input size.`
-        : `${unavailable} evaluation(s) unavailable; records conservatively kept for analysis. Check Gateway access, connectivity, or input size.`);
+        ? `${unavailable} evaluation(s) unavailable; those lines were held. Check ${via} access, connectivity, or input size.`
+        : `${unavailable} evaluation(s) unavailable; records conservatively kept for analysis. Check ${via} access, connectivity, or input size.`);
       process.exitCode = 2;
     }
   };

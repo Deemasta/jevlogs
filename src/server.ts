@@ -1,7 +1,7 @@
 import { createServer, type ServerResponse } from 'node:http';
 import { createRequire } from 'node:module';
 import { gunzipSync } from 'node:zlib';
-import { createJevLogs, decisionAttributes, type JevOptions, type Decision } from './index.js';
+import { createJevLogs, decisionAttributes, jevProvider, type JevOptions, type Decision } from './index.js';
 import { decodeOtlpLogsRequest, encodeOtlpLogsResponse, encodeRpcStatus } from './otlp-proto.js';
 
 const { version } = createRequire(import.meta.url)('../package.json') as { version: string };
@@ -132,7 +132,7 @@ export async function startJevLogsServer(options: JevServerOptions) {
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid port');
   if (options.onLog !== undefined && typeof options.onLog !== 'function') throw new Error('onLog must be a function');
   if (!options.onLog && !options.forwardUrl) throw new Error('Provide onLog, forwardUrl, or both');
-  if (!options.evaluator && !process.env.AI_GATEWAY_API_KEY?.trim()) throw new Error('Set AI_GATEWAY_API_KEY in the receiver environment');
+  if (!options.evaluator && !jevProvider()) throw new Error('Set OPENROUTER_API_KEY or AI_GATEWAY_API_KEY in the receiver environment');
   const concurrency = options.concurrency ?? 4;
   const maxRequests = options.maxRequests ?? 8;
   if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 32 || !Number.isInteger(maxRequests) || maxRequests < 1 || maxRequests > 256) throw new Error('concurrency must be 1–32 and maxRequests 1–256');

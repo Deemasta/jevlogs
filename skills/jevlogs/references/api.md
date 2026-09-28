@@ -23,7 +23,7 @@ interface JevOptions {
   timeoutMs?: number;      // default 2000; > 0
   maxInputChars?: number;  // default 8000; integer >= 1
   redact?: (text: string) => string;   // default redactCommonSecrets
-  evaluator?: Evaluator;   // default: Jev via AI Gateway
+  evaluator?: Evaluator;   // default: Jev via OpenRouter if OPENROUTER_API_KEY is set, else AI Gateway
 }
 type Evaluator = (state: string, signal: AbortSignal) => Promise<Evaluation>;
 interface Evaluation { value: number; priority: 'critical'|'high'|'normal'|'low'; actionableProbability: number }
@@ -166,7 +166,7 @@ interface JevServerOptions extends JevOptions {
 interface JevLogEvent { resource: object; scope: object; logRecord: object; decision: Decision }
 ```
 
-Returns `{ url, close() }`. Throws at startup if `onLog` is missing or if neither `evaluator` nor `AI_GATEWAY_API_KEY` is present. Protocol and limits are in `integration.md`.
+Returns `{ url, close() }`. Throws at startup if `onLog` is missing or if neither `evaluator` nor `OPENROUTER_API_KEY` / `AI_GATEWAY_API_KEY` is present. Protocol and limits are in `integration.md`.
 
 ## `loadJevConfig(path?)` and `jevlogs.config.json`
 
