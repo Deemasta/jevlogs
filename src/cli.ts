@@ -36,7 +36,7 @@ const HELP = `
   --limit <1–100>    Max records to evaluate; default 20 (ignored with --follow or --group)
   --group            Collapse repeated templates, one Jev call per template (--file or --stdin,
                      no 1 MiB limit, works offline without --live). Rows are ranked: protected,
-                     grown vs baseline, Jev value, count. Default --max-calls 100
+                     grown vs baseline (by growth), Jev value, count. Default --max-calls 100
   --baseline <path>  With --group: count the same templates in an earlier window of equal length
   --json             Emit one JSON object per record; summary goes to stderr
   --help, -h         Show help
@@ -47,6 +47,7 @@ const HELP = `
   Provider charges apply. Default redaction is not a complete PII policy.
   Input limit: 1 MiB total / 8,000 characters per record (--group: no total limit). No files are changed.
   --group config: groupMask [{ match, flags }] masks free text as <*>; groupKeep keeps metric lines unmerged.
+  --group input may be pre-aggregated: a JSONL count field adds that many repeats.
   JSONL accepts body, message, or msg, severityNumber, severityText or level,
   and protected: true. Pino levels 10–60 map to OpenTelemetry severity.
   Errors and protected logs bypass analysis. --page still asks the model about ERROR lines.
@@ -76,7 +77,7 @@ const PINO_LEVELS: Record<number, { text: string; severityNumber: number }> = {
 };
 const POSITIVE_LABELS = new Set(['incident', 'page', 'analyze', 'important', 'signal', 'true', 'yes']);
 const NEGATIVE_LABELS = new Set(['noise', 'ignore', 'retain', 'ok', 'normal', 'false', 'no', 'background']);
-interface ParsedRecord { input: LogInput; important?: boolean; time?: string | number }
+interface ParsedRecord { input: LogInput; important?: boolean; time?: string | number; count?: number }
 function parseRecord(line: string, index: number, strictLabels: boolean, maxChars = 8000): ParsedRecord {
   const labeled = (input: LogInput, source?: Record<string, unknown>): ParsedRecord => {
     if (!source) return { input };
@@ -110,7 +111,9 @@ function parseRecord(line: string, index: number, strictLabels: boolean, maxChar
     }
     const service = typeof r.service === 'string' ? r.service : undefined;
     const time = [r.timestamp, r.time, r['@timestamp'], r.ts, r.timeUnixNano].find(value => typeof value === 'string' || typeof value === 'number') as string | number | undefined;
-    return { ...labeled({ body: r.body ?? r.message ?? r.msg ?? record, severityNumber, severityText, protected: r.protected === true, ...(service ? { service } : {}) }, r), ...(time === undefined ? {} : { time }) };
+    // Pre-aggregated rows (for example VictoriaLogs `stats ... count()`) carry their repeat count, sometimes as a string.
+    const count = Number(r.count);
+    return { ...(Number.isInteger(count) && count > 0 ? { count } : {}), ...labeled({ body: r.body ?? r.message ?? r.msg ?? record, severityNumber, severityText, protected: r.protected === true, ...(service ? { service } : {}) }, r), ...(time === undefined ? {} : { time }) };
   }
   return labeled({ body: record });
 }
@@ -191,15 +194,15 @@ async function readGroups(input: NodeJS.ReadableStream, masks: RegExp[], keep: R
     if (!line.trim()) continue;
     let parsed: ParsedRecord;
     try { parsed = parseRecord(line, index, false, MAX_BYTES); } catch (error) { skipped++; console.error(`jevlogs: skipped line ${index + 1}: ${error instanceof Error ? error.message : 'invalid record'}`); continue; }
-    records++;
-    const { input: record, time } = parsed;
+    const { input: record, time, count = 1 } = parsed;
+    records += count;
     const text = typeof record.body === 'string' ? record.body : JSON.stringify(record.body) ?? '';
     const kept = keep.some(rule => rule.test(text));
     const template = kept ? redactCommonSecrets(text) : groupTemplate(text, masks);
     const key = kept ? `line:${index}` : `${record.severityText ?? record.severityNumber ?? ''}\n${record.service ?? ''}\n${template}`;
     const group = groups.get(key);
-    if (group) { group.count++; group.lastLine = index + 1; group.last = time ?? group.last; if (record.protected) group.input.protected = true; }
-    else groups.set(key, { key, input: record, template, count: 1, line: index + 1, lastLine: index + 1, first: time, last: time, keep: kept });
+    if (group) { group.count += count; group.lastLine = index + 1; group.last = time ?? group.last; if (record.protected) group.input.protected = true; }
+    else groups.set(key, { key, input: record, template, count, line: index + 1, lastLine: index + 1, first: time, last: time, keep: kept });
   }
   return { groups, records, skipped };
 }
@@ -207,7 +210,8 @@ async function readGroups(input: NodeJS.ReadableStream, masks: RegExp[], keep: R
 const grown = (group: Group): boolean => (group.growth ?? 0) >= 2;
 function rankGroups(a: { group: Group; decision?: Decision }, b: { group: Group; decision?: Decision }): number {
   // Offline there is no decision, so severity alone ranks protected records first, as triage would.
-  const key = ({ group, decision }: typeof a) => [group.input.protected || errorSeverity(group.input) ? 0 : 1, decision?.route === 'retain' ? 1 : 0, grown(group) ? 0 : 1, -(decision?.value ?? 0), -group.count];
+  // Among grown templates the size of the jump ranks first: on a real incident a x361 proxy timeout sat below one-off lines on Jev value alone.
+  const key = ({ group, decision }: typeof a) => [group.input.protected || errorSeverity(group.input) ? 0 : 1, decision?.route === 'retain' ? 1 : 0, grown(group) ? 0 : 1, grown(group) ? -group.growth! : 0, -(decision?.value ?? 0), -group.count];
   const x = key(a), y = key(b);
   for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i]! - y[i]!;
   return 0;
