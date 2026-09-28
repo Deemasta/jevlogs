@@ -141,7 +141,7 @@ MCP понадобится, только если агент работает б
 
 ## Skill `incident-logs` (2026-09-28)
 
-- Где лежит: `~/.codex/skills/incident-logs/`, вне форка; видят и Claude Code, и Codex. Состав: `SKILL.md`, `scripts/fetch-logs.mjs` (выгрузка без зависимостей), `configs/` — `default.json` и конфиги/маски по сервисам.
+- Где лежит: `~/.agents/skills/incident-logs/`, вне форка; на него ведут симлинки из `~/.claude/skills/` и `~/.codex/skills/`, так что у обоих агентов одна копия конфигов. Проверено `claude -p` и `codex exec`: оба видят skill. Прежняя запись «в `~/.codex/skills` его видят оба агента» была ошибкой: Claude Code этот каталог не читает, а старые infra-skills попадают в Claude как копии в `~/.claude/commands/`. Состав: `SKILL.md`, `scripts/fetch-logs.mjs` (выгрузка без зависимостей), `configs/` — `default.json` и конфиги/маски по сервисам.
 - Решения (grill-me):
   - источник логов указывается в промпте;
   - сырые логи попадают только в файлы, MCP-инструменты агента — только для разведки;
