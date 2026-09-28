@@ -205,10 +205,12 @@ JSONL: one JSON value per line. Objects can use these fields:
 | `--sample` | With `--live`, evaluate sample records and exit |
 | `--config <path>` | Override the root `jevlogs.config.json` location |
 | `--port <number>` | Override the local receiver port |
-| `--file <path>` | Read a text or JSONL file; requires `--live` |
-| `--stdin` | Read stdin until EOF; requires `--live` |
+| `--file <path>` | Read a text or JSONL file; requires `--live` or `--group`; four evaluations in flight, output in file order |
+| `--stdin` | Read stdin until EOF; requires `--live` or `--group` |
 | `--follow` | With `--stdin`: evaluate each line as it arrives, no record limit, four evaluations in flight |
-| `--limit <1–100>` | Maximum records processed; default 20; ignored with `--follow` |
+| `--limit <1–100>` | Maximum records processed; default 20; ignored with `--follow` and `--group` |
+| `--group` | Collapse a file or stdin into ranked templates, one Jev call per template; no 1 MiB limit; offline without `--live`. See [Investigate an incident](#9-investigate-an-incident) |
+| `--baseline <path>` | With `--group`: count the same templates in an earlier window of equal length |
 | `--json` | JSONL decisions on stdout, summaries on stderr |
 | `--help`, `-h` | Print usage |
 | `--version`, `-v` | Print package version |
@@ -221,7 +223,7 @@ Total input is limited to 1 MiB. Each selected input line is limited to 8,000 ch
 {"line":1,"mode":"demo","value":0,"priority":"low","actionableProbability":0.01,"route":"retain","reason":"model","cached":false}
 ```
 
-`line` is the one-based processed record index after blank lines are removed, not necessarily the physical file line number. `mode` distinguishes sample answers from live mode. In live mode, `reason: "protected"` means the local protection rule ran without calling the model.
+`line` is the one-based processed record index after blank lines are removed, not necessarily the physical file line number. With `--group`, `line` and `lastLine` are physical file lines. `mode` distinguishes sample answers from live mode. In live mode, `reason: "protected"` means the local protection rule ran without calling the model.
 
 | Exit code | Meaning |
 | --- | --- |
@@ -479,6 +481,22 @@ npx jevlogs --live --file incidents.jsonl --labels --json
 The same math is `scoreDecisions([{ important, selected, line }])`. Recall is null when nothing was important. Precision is null when nothing was selected.
 
 `maxModelCalls` limits how many records may call the model during that run. Rules, cache hits, and protected records do not spend it. Past the cap, triage keeps the record for analysis with `reason: "budget"`, and the pager holds.
+
+## 9. Investigate an incident
+
+```sh
+npx jevlogs --live --group --file incident.jsonl --baseline earlier.jsonl --config investigate.json
+```
+
+```json
+{ "timeoutMs": 5000, "groupMask": [{ "match": "^[^:]+(?=: page)" }], "groupKeep": [{ "match": "^(Session stats|REPORT)" }] }
+```
+
+`--group` streams a finished file or stdin without the 1 MiB limit and collapses records into templates: common secrets are redacted, UUIDs, IPs, times, paths, and every number are masked, and `groupMask` matches become `<*>` (use it for free text such as search phrases). Records matching `groupKeep` stay one per line because their numbers are the evidence. Jev is asked once per template, four calls at a time; `--max-calls` defaults to 100. `--baseline` groups an earlier window **of the same length** and adds `baseline` and `growth` = (count + 1) / (baseline + 1) to each template.
+
+Rows are ranked, not filtered: errors and protected records, then analysis before retained, then templates that at least doubled or appeared, then Jev value, then count. Each row has `line` and `lastLine` (physical file lines), `first` and `last` when records carry `timestamp`, `time`, `@timestamp`, `ts`, or `timeUnixNano`, `level`, and the redacted template, so every conclusion can be checked against the source. Without `--live`, `--group` prints templates and counts with no model calls.
+
+A 5-second `timeoutMs` suits investigation through OpenRouter: in testing its latency was either 0.3–1 s or 13–43 s, so a longer wait rarely returns an answer, and a timed-out template is still kept for analysis.
 
 ## Troubleshooting
 

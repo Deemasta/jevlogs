@@ -220,15 +220,17 @@ cat x | npx jevlogs --live --stdin  read to EOF, then evaluate
   --suppress-ms <n> hold repeat pages of one template (requires --page)
   --max-calls <n>  cap model invocations at n (0–1000000)
   --labels         print recall and precision from important/label; miss exits 2
+  --group          collapse file/stdin into ranked templates, one Jev call each; no 1 MiB limit; offline without --live
+  --baseline <p>   with --group: template counts from an earlier window of equal length (adds baseline, growth)
   --demo           explicit offline demo
   --help, -h / --version, -v
 ```
 
-Rules enforced by the parser: `--file`/`--stdin` require `--live`; `--live` and `--demo` are exclusive; `--file` and `--stdin` are exclusive; `--sample` requires `--live` without file/stdin. Total input 1 MiB; each line 8,000 chars. Plain-text lines get `severityText` from the first ERROR/FATAL/CRITICAL/WARN/INFO/DEBUG/TRACE word. JSONL fields: `body` (else `message`, else `msg`, else whole object), `severityNumber` (must be numeric), `severityText` (else `level`; strings are upper-cased; Pino numbers 10–60 map to TRACE–FATAL and an OTel severity number), `service`, `protected`.
+Rules enforced by the parser: `--file`/`--stdin` require `--live` or `--group`; `--group` needs `--file` or `--stdin` and rejects `--follow`, `--page`, `--labels`, `--sample`; `--baseline` requires `--group`; `--live` and `--demo` are exclusive; `--file` and `--stdin` are exclusive; `--sample` requires `--live` without file/stdin. Total input 1 MiB; each line 8,000 chars. Plain-text lines get `severityText` from the first ERROR/FATAL/CRITICAL/WARN/INFO/DEBUG/TRACE word. JSONL fields: `body` (else `message`, else `msg`, else whole object), `severityNumber` (must be numeric), `severityText` (else `level`; strings are upper-cased; Pino numbers 10–60 map to TRACE–FATAL and an OTel severity number), `service`, `protected`.
 
 `--page` uses `createJevPager` on a sample, file, or stdin stream. It does not switch the OTLP receiver. `--page-above` requires `--page` and must be 0.05–0.95. JSON lines add `"task":"page"` and a `page` boolean.
 
-`--json` line shape: `{"line":N,"mode":"demo"|"live",...Decision}` where `line` counts non-blank records, not physical lines.
+`--json` line shape: `{"line":N,"mode":"demo"|"live",...Decision}` where `line` counts non-blank records, not physical lines. `--group` rows: `{"line","lastLine","count","level"?,"first"?,"last"?,"baseline"?,"growth"?,"keep"?,"template",...Decision?}` with physical line numbers and a redacted template (max 1,000 chars); config keys `groupMask` and `groupKeep` take `[{ match, flags? }]`.
 
 Exit codes: `0` ok, `1` usage/input/key error, `2` at least one `unavailable` decision (decisions were still printed).
 

@@ -3,6 +3,8 @@ import { resolve, dirname } from 'node:path';
 import { loadEnvFile } from 'node:process';
 import { compileRules, type Rule, type CacheOptions } from './index.js';
 
+export interface Pattern { match: string; flags?: string }
+
 export interface JevConfig {
   port?: number; envFile?: string; retainBelow?: number; timeoutMs?: number; maxInputChars?: number;
   /** OTLP HTTP/JSON logs endpoint that receives annotated records, for example http://127.0.0.1:4320/v1/logs. */
@@ -18,8 +20,12 @@ export interface JevConfig {
   maxModelCalls?: number;
   /** Pager cooldown for a repeated template. 0 disables. The analysis receiver ignores this. */
   suppressForMs?: number;
+  /** --group: replace these matches with <*> before grouping, for free text such as search phrases. */
+  groupMask?: Pattern[];
+  /** --group: records matching these stay one per line, for metric lines whose numbers matter. */
+  groupKeep?: Pattern[];
 }
-const KEYS = ['port', 'envFile', 'retainBelow', 'timeoutMs', 'maxInputChars', 'forwardUrl', 'forwardMode', 'rules', 'cacheSize', 'cacheTtlMs', 'normalizeTemplates', 'maxModelCalls', 'suppressForMs'];
+const KEYS = ['port', 'envFile', 'retainBelow', 'timeoutMs', 'maxInputChars', 'forwardUrl', 'forwardMode', 'rules', 'cacheSize', 'cacheTtlMs', 'normalizeTemplates', 'maxModelCalls', 'suppressForMs', 'groupMask', 'groupKeep'];
 /** JSON only: configuration never executes application code. Existing environment variables win. */
 export async function loadJevConfig(path?: string): Promise<JevConfig> {
   const filename = resolve(path ?? 'jevlogs.config.json');
@@ -49,9 +55,17 @@ export async function loadJevConfig(path?: string): Promise<JevConfig> {
   if (config.rules !== undefined) {
     try { compileRules(config.rules as Rule[]); } catch (error) { throw new Error(`Config ${error instanceof Error ? error.message : 'rules are invalid'}`); }
   }
+  compilePatterns(config.groupMask, 'groupMask'); compilePatterns(config.groupKeep, 'groupKeep');
   const { cacheSize, cacheTtlMs, ...rest } = config;
   const result: JevConfig = rest as JevConfig;
   if (cacheSize === 0) result.cache = false;
   else if (cacheSize !== undefined || cacheTtlMs !== undefined) result.cache = { ...(cacheSize === undefined ? {} : { maxEntries: cacheSize as number }), ...(cacheTtlMs === undefined ? {} : { ttlMs: cacheTtlMs as number }) };
   return result;
+}
+/** Validate groupMask or groupKeep entries ({ match, flags? }) with the same limits as rules. */
+export function compilePatterns(list: unknown, key: string): RegExp[] {
+  if (list === undefined) return [];
+  if (!Array.isArray(list)) throw new Error(`Config ${key} must be an array`);
+  try { return compileRules(list.map(item => ({ ...item, route: 'retain' }))).map(rule => rule.regex); }
+  catch (error) { throw new Error(`Config ${error instanceof Error ? error.message.replace(/^rules/, key) : `${key} is invalid`}`); }
 }

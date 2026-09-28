@@ -33,6 +33,6 @@ test('config accepts forwarding, rules and cache keys and validates them',async(
   const config=await loadJevConfig(path);
   assert.equal(config.forwardMode,'analysis-only');assert.deepEqual(config.cache,{maxEntries:50,ttlMs:1000});assert.equal(config.rules.length,1);assert.equal('cacheSize' in config,false);
   await writeFile(path,JSON.stringify({cacheSize:0}));assert.equal((await loadJevConfig(path)).cache,false);
-  for(const value of [{forwardUrl:'not a url'},{forwardUrl:'ftp://x/y'},{forwardMode:'annotate'},{forwardUrl:'http://x',forwardMode:'drop'},{rules:[{match:'(',route:'retain'}]},{rules:{}},{cacheSize:'many'}]){await writeFile(path,JSON.stringify(value));await assert.rejects(loadJevConfig(path),undefined,JSON.stringify(value));}
+  for(const value of [{forwardUrl:'not a url'},{forwardUrl:'ftp://x/y'},{forwardMode:'annotate'},{forwardUrl:'http://x',forwardMode:'drop'},{rules:[{match:'(',route:'retain'}]},{rules:{}},{cacheSize:'many'},{groupMask:[{match:'('}]},{groupMask:['x']},{groupKeep:{}},{groupKeep:[{match:'x',flags:'g'}]}]){await writeFile(path,JSON.stringify(value));await assert.rejects(loadJevConfig(path),undefined,JSON.stringify(value));}
  }finally{await rm(dir,{recursive:true,force:true});}
 });
