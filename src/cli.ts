@@ -36,7 +36,7 @@ const HELP = `
   --limit <1–100>    Max records to evaluate; default 20 (ignored with --follow or --group)
   --group            Collapse repeated templates, one Jev call per template (--file or --stdin,
                      no 1 MiB limit, works offline without --live). Rows are ranked: protected,
-                     grown vs baseline, Jev value, count. Default --max-calls 100
+                     grown vs baseline (by growth), Jev value, count. Default --max-calls 100
   --baseline <path>  With --group: count the same templates in an earlier window of equal length
   --json             Emit one JSON object per record; summary goes to stderr
   --help, -h         Show help
@@ -207,7 +207,8 @@ async function readGroups(input: NodeJS.ReadableStream, masks: RegExp[], keep: R
 const grown = (group: Group): boolean => (group.growth ?? 0) >= 2;
 function rankGroups(a: { group: Group; decision?: Decision }, b: { group: Group; decision?: Decision }): number {
   // Offline there is no decision, so severity alone ranks protected records first, as triage would.
-  const key = ({ group, decision }: typeof a) => [group.input.protected || errorSeverity(group.input) ? 0 : 1, decision?.route === 'retain' ? 1 : 0, grown(group) ? 0 : 1, -(decision?.value ?? 0), -group.count];
+  // Among grown templates the size of the jump ranks first: on a real incident a x361 proxy timeout sat below one-off lines on Jev value alone.
+  const key = ({ group, decision }: typeof a) => [group.input.protected || errorSeverity(group.input) ? 0 : 1, decision?.route === 'retain' ? 1 : 0, grown(group) ? 0 : 1, grown(group) ? -group.growth! : 0, -(decision?.value ?? 0), -group.count];
   const x = key(a), y = key(b);
   for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i]! - y[i]!;
   return 0;
