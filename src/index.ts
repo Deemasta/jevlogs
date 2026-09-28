@@ -128,7 +128,8 @@ const modelState = (log: LogInput): string => {
   const service = serviceOf(log);
   return JSON.stringify({ body: log.body, severityText: log.severityText, severityNumber: log.severityNumber, ...(service ? { service } : {}) });
 };
-const errorSeverity = (log: LogInput): boolean => (log.severityNumber ?? 0) >= 17 || /^(ERROR|FATAL|CRITICAL)$/i.test(log.severityText ?? '');
+/** ERROR and above by text or OpenTelemetry severityNumber. Triage protects these without a model call. */
+export const errorSeverity = (log: LogInput): boolean => (log.severityNumber ?? 0) >= 17 || /^(ERROR|FATAL|CRITICAL)$/i.test(log.severityText ?? '');
 const fatalSeverity = (log: LogInput): boolean => (log.severityNumber ?? 0) >= 21 || /^(FATAL|CRITICAL)$/i.test(log.severityText ?? '');
 
 class DecisionCache<T> {

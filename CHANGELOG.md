@@ -3,6 +3,9 @@
 ## Unreleased
 
 - **OpenRouter.** With `OPENROUTER_API_KEY` set, the built-in triage and pager evaluators call Jev through the [OpenRouter Decisions API](https://openrouter.ai/docs/guides/community/jev) (`POST /api/alpha/decisions`, model `typesafe/jev-1.13`, override with `OPENROUTER_JEV_MODEL`). Requests ask for zero data retention and deny data collection. `AI_GATEWAY_API_KEY` still selects Vercel AI Gateway; OpenRouter wins when both are set. The CLI and receiver accept either key and name the provider in their banners. `jevProvider()` reports the choice.
+- **Incident grouping.** `--group` streams a finished file or stdin without the 1 MiB limit, collapses records into templates (numbers, IDs, and `groupMask` matches masked; `groupKeep` lines left alone), asks Jev once per template, and ranks rows instead of filtering them. `--baseline` adds counts from an earlier window and ranks templates that doubled or appeared. Rows carry physical line numbers and first/last timestamps. Without `--live`, grouping runs offline.
+- **Parallel files.** `--file` and `--stdin` batches now run four model calls at a time and still print in file order.
+- CLI values are rounded for display; JSON output is unchanged. `errorSeverity()` is exported.
 
 ## 0.5.0 — 2026-09-21
 

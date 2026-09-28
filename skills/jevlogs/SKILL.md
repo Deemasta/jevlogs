@@ -21,6 +21,7 @@ Read `references/api.md` before writing code against the package. It lists the e
 | Run real Jev on a finite log file or JSONL | `npx jevlogs --live --file app.log` or `--stdin --json` | Yes |
 | Score records inside their own code | `createJevLogs().triage()` | Yes |
 | Decide whether to page on-call | `createJevPager().decide()` and threshold `probability` | Yes |
+| Rank a finished incident window by template, growth against an earlier window, and Jev value | `npx jevlogs --live --group --file incident.jsonl --baseline earlier.jsonl --json` (drop `--live` for counts only) | Yes for Jev; grouping is local |
 | Measure recall on a labeled JSONL file | `npx jevlogs --live --file sample.jsonl --labels` or `scoreDecisions()` | Yes for live lines; the score itself is local |
 | Annotate OpenTelemetry logs in place | `JevLogExporter` with `mode: 'annotate'` | Yes |
 | Skip the LLM-analysis branch for low-value logs | second processor with `mode: 'analysis-only'` | Yes |

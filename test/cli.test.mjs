@@ -85,3 +85,42 @@ test('labels report recall and precision for a file',async()=>{
  assert.equal(run(['--suppress-ms','1000']).status,1);
  await fs.rm(dir,{recursive:true,force:true});
 });
+test('group mode collapses templates, masks free text, keeps metric lines, and ranks growth against a baseline offline',async()=>{
+ const fs=await import('node:fs/promises');const os=await import('node:os');const path=await import('node:path');
+ const dir=await fs.mkdtemp(path.join(os.tmpdir(),'jev-group-'));
+ const rows=r=>r.map(x=>JSON.stringify(x)).join('\n')+'\n';
+ const current=[...Array.from({length:6},(_, i)=>({timestamp:`t${i}`,level:'INFO',message:`ALL ${100+i} pages successfully processed`})),
+  ...Array.from({length:4},(_, i)=>({timestamp:`b${i}`,level:'WARN',message:`red shoes ${i}: page ${i}: bad response`})),
+  {level:'ERROR',message:'10.0.0.1:8000: mark as unavailable'},{level:'INFO',message:'Session stats {"requests":3909}'},{level:'INFO',message:'Session stats {"requests":4100}'},
+  {level:'INFO',message:'login ok password=hunter2'}];
+ await fs.writeFile(path.join(dir,'incident.jsonl'),rows(current).replace('\n','\n\n'));
+ await fs.writeFile(path.join(dir,'baseline.jsonl'),rows([...Array.from({length:6},(_, i)=>({level:'INFO',message:`ALL ${i} pages successfully processed`})),{level:'WARN',message:'blue hat: page 1: bad response'}]));
+ await fs.writeFile(path.join(dir,'jevlogs.config.json'),JSON.stringify({groupMask:[{match:'^[^:]+(?=: page)'}],groupKeep:[{match:'^Session stats'}]}));
+ const r=spawnSync(process.execPath,[process.cwd()+'/dist/cli.js','--group','--file','incident.jsonl','--baseline','baseline.jsonl','--json'],{cwd:dir,encoding:'utf8',env:{...process.env,AI_GATEWAY_API_KEY:'',OPENROUTER_API_KEY:''}});
+ assert.equal(r.status,0,r.stderr);assert.match(r.stderr,/GROUP · offline/);assert.match(r.stderr,/14 records → 6 templates/);
+ const out=r.stdout.trim().split('\n').map(JSON.parse);
+ assert.equal(out.length,6);
+ assert.equal(out[0].level,'ERROR');assert.equal(out[0].template,'[IP]:N: mark as unavailable');
+ const bad=out.find(o=>o.template==='<*>: page N: bad response');
+ assert.deepEqual([bad.count,bad.baseline,bad.growth,bad.line,bad.lastLine,bad.first,bad.last],[4,1,2.5,8,11,'b0','b3']);
+ assert.ok(out.indexOf(bad)<out.findIndex(o=>o.template==='ALL N pages successfully processed'));
+ assert.equal(out.find(o=>o.template.startsWith('ALL')).growth,1);
+ assert.equal(out.filter(o=>o.keep).length,2);assert.ok(out.filter(o=>o.keep).every(o=>o.baseline===undefined&&o.count===1));
+ assert.ok(!r.stdout.includes('hunter2'));assert.ok(out.every(o=>!('route' in o)));
+ assert.equal(spawnSync(process.execPath,[process.cwd()+'/dist/cli.js','--group','--page','--file','incident.jsonl'],{cwd:dir,encoding:'utf8'}).status,1);
+ assert.equal(spawnSync(process.execPath,[process.cwd()+'/dist/cli.js','--baseline','baseline.jsonl','--live','--file','incident.jsonl'],{cwd:dir,encoding:'utf8'}).status,1);
+ await fs.rm(dir,{recursive:true,force:true});
+});
+test('live group mode decides once per template and ranks protected, analysis, then retained',async()=>{
+ const fs=await import('node:fs/promises');const os=await import('node:os');const path=await import('node:path');
+ const dir=await fs.mkdtemp(path.join(os.tmpdir(),'jev-group-live-'));
+ // Rules decide every template, so no network call is made.
+ await fs.writeFile(path.join(dir,'jevlogs.config.json'),JSON.stringify({rules:[{name:'health',match:'health',route:'retain'},{name:'rest',match:'.',route:'analyze'}]}));
+ await fs.writeFile(path.join(dir,'app.log'),'GET /health 200 in 3ms\nGET /health 200 in 4ms\nqueue depth 12000\nERROR disk full on node 7\nGET /health 200 in 5ms\n');
+ const r=spawnSync(process.execPath,[process.cwd()+'/dist/cli.js','--live','--group','--file','app.log','--json'],{cwd:dir,encoding:'utf8',env:{...process.env,AI_GATEWAY_API_KEY:'',OPENROUTER_API_KEY:'synthetic'}});
+ assert.equal(r.status,0,r.stderr);assert.match(r.stderr,/5 records → 3 templates/);assert.match(r.stderr,/2 decided by rules/);
+ const out=r.stdout.trim().split('\n').map(JSON.parse);
+ assert.deepEqual(out.map(o=>[o.reason,o.route,o.count]),[['protected','analyze',1],['rule','analyze',1],['rule','retain',3]]);
+ assert.deepEqual([out[2].line,out[2].lastLine],[1,5]);
+ await fs.rm(dir,{recursive:true,force:true});
+});
